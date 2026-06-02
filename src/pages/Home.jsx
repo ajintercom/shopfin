@@ -6,27 +6,9 @@ import ProductCard from '../components/ProductCard'
 import { openIntercom } from '../lib/intercom'
 
 const HERO_BANNERS = [
-  {
-    title: 'Summer Deals',
-    sub: 'Up to 40% off Electronics',
-    bg: 'from-gray-900 to-gray-700',
-    emoji: '💻',
-    cat: 'electronics',
-  },
-  {
-    title: 'New Arrivals',
-    sub: 'Fresh styles just landed',
-    bg: 'from-brand-700 to-brand-500',
-    emoji: '👕',
-    cat: 'clothing',
-  },
-  {
-    title: 'Home & Kitchen',
-    sub: 'Upgrade your space',
-    bg: 'from-emerald-800 to-emerald-600',
-    emoji: '🏠',
-    cat: 'home',
-  },
+  { title: 'Summer Deals',   sub: 'Up to 40% off Electronics', bg: 'from-gray-900 to-gray-700',     emoji: '💻', cat: 'electronics' },
+  { title: 'New Arrivals',   sub: 'Fresh styles just landed',   bg: 'from-brand-700 to-brand-500',   emoji: '👕', cat: 'clothing' },
+  { title: 'Home & Kitchen', sub: 'Upgrade your space',         bg: 'from-emerald-800 to-emerald-600', emoji: '🏠', cat: 'home' },
 ]
 
 const PERKS = [
