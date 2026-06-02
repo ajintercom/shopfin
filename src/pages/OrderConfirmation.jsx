@@ -1,10 +1,40 @@
-import React from 'react'
-import { Link, useParams } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { CheckCircle, Package, MessageCircle } from 'lucide-react'
 import { openIntercom } from '../lib/intercom'
+import { useCart } from '../context/CartContext'
 
 export default function OrderConfirmation() {
   const { orderId } = useParams()
+  const [searchParams] = useSearchParams()
+  const { clearCart } = useCart()
+  const sessionId = searchParams.get('session_id')
+
+  // If coming from Stripe hosted checkout (success URL)
+  const isStripeSuccess = orderId === 'success' && sessionId
+  const displayId = isStripeSuccess
+    ? `ORD-${sessionId.slice(-8).toUpperCase()}`
+    : orderId
+
+  useEffect(() => {
+    if (isStripeSuccess) {
+      // Save order and clear cart
+      const orders = JSON.parse(localStorage.getItem('shopfin_orders') || '[]')
+      const newOrderId = `ORD-${sessionId.slice(-8).toUpperCase()}`
+      if (!orders.find((o) => o.id === newOrderId)) {
+        orders.unshift({
+          id: newOrderId,
+          stripeSessionId: sessionId,
+          date: new Date().toISOString(),
+          status: 'Processing',
+          items: [],
+          total: 0,
+        })
+        localStorage.setItem('shopfin_orders', JSON.stringify(orders))
+      }
+      clearCart()
+    }
+  }, [isStripeSuccess])
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-16 text-center">
@@ -22,7 +52,7 @@ export default function OrderConfirmation() {
 
         <div className="bg-gray-50 rounded-xl py-4 px-6 mb-8 inline-block">
           <p className="text-sm text-gray-500 mb-1">Order ID</p>
-          <p className="font-mono font-bold text-lg text-gray-900">{orderId}</p>
+          <p className="font-mono font-bold text-lg text-gray-900">{displayId}</p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
