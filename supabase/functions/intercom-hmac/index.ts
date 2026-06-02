@@ -69,7 +69,11 @@ Deno.serve(async (req) => {
     }
 
     const token = await generateJwt(
-      { user_id: user.id, email: user.email },
+      {
+        user_id: user.id,
+        email: user.email,
+        name: user.user_metadata?.full_name || user.email,
+      },
       secret
     )
 
