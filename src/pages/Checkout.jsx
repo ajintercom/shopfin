@@ -1,19 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { loadStripe } from '@stripe/stripe-js'
-import {
-  Elements,
-  PaymentElement,
-  useStripe,
-  useElements,
-} from '@stripe/react-stripe-js'
-import { Truck, CheckCircle, Lock } from 'lucide-react'
+import { Truck, Lock, CreditCard } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '')
-
-const STEPS = ['Shipping', 'Payment', 'Review']
 
 function FormField({ label, id, ...props }) {
   return (
@@ -24,66 +13,12 @@ function FormField({ label, id, ...props }) {
   )
 }
 
-// Inner payment form using Stripe hooks
-function StripePaymentForm({ clientSecret, onSuccess, onBack }) {
-  const stripe = useStripe()
-  const elements = useElements()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (!stripe || !elements) return
-    setLoading(true)
-    setError('')
-
-    const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      confirmParams: { return_url: window.location.origin + '/order-confirmation/pending' },
-      redirect: 'if_required',
-    })
-
-    if (stripeError) {
-      setError(stripeError.message)
-      setLoading(false)
-    } else if (paymentIntent?.status === 'succeeded') {
-      onSuccess(paymentIntent.id)
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="p-4 border border-gray-200 rounded-xl">
-        <PaymentElement />
-      </div>
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
-          {error}
-        </div>
-      )}
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={onBack} className="btn-secondary flex-1 py-3">
-          ← Back
-        </button>
-        <button
-          type="submit"
-          disabled={!stripe || loading}
-          className="btn-primary flex-1 py-3 text-base"
-        >
-          {loading ? 'Processing…' : 'Pay Now'}
-        </button>
-      </div>
-    </form>
-  )
-}
-
 export default function Checkout() {
   const navigate = useNavigate()
-  const { items, subtotal, tax, shipping, total, clearCart } = useCart()
+  const { items, subtotal, tax, shipping, total } = useCart()
   const { user, session } = useAuth()
-  const [step, setStep] = useState(0)
-  const [clientSecret, setClientSecret] = useState('')
-  const [loadingIntent, setLoadingIntent] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [ship, setShip] = useState({
     fullName: user?.user_metadata?.full_name || '',
     email: user?.email || '',
@@ -98,11 +33,15 @@ export default function Checkout() {
     return null
   }
 
-  async function handleShipNext(e) {
+  async function handleCheckout(e) {
     e.preventDefault()
-    setLoadingIntent(true)
+    setLoading(true)
+    setError('')
+
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      const origin = window.location.origin
+
       const res = await fetch(`${supabaseUrl}/functions/v1/stripe-payment`, {
         method: 'POST',
         headers: {
@@ -110,125 +49,78 @@ export default function Checkout() {
           Authorization: `Bearer ${session?.access_token}`,
         },
         body: JSON.stringify({
-          amount: total,
-          currency: 'usd',
-          metadata: { email: ship.email, name: ship.fullName },
+          items,
+          total,
+          customerEmail: ship.email,
+          successUrl: `${origin}/order-confirmation/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${origin}/cart`,
         }),
       })
+
       const data = await res.json()
-      if (data.clientSecret) {
-        setClientSecret(data.clientSecret)
-        setStep(1)
+
+      if (data.url) {
+        // Redirect to Stripe hosted checkout
+        window.location.href = data.url
       } else {
-        alert('Payment setup failed: ' + (data.error || 'Unknown error'))
+        setError(data.error || 'Payment setup failed. Please try again.')
       }
     } catch (err) {
-      alert('Payment setup failed: ' + err.message)
+      setError('Could not connect to payment service. Please try again.')
     } finally {
-      setLoadingIntent(false)
+      setLoading(false)
     }
   }
-
-  function handlePaymentSuccess(paymentIntentId) {
-    // Save order to localStorage
-    const orderId = `ORD-${paymentIntentId.slice(-8).toUpperCase()}`
-    const orders = JSON.parse(localStorage.getItem('shopfin_orders') || '[]')
-    orders.unshift({
-      id: orderId,
-      paymentIntentId,
-      date: new Date().toISOString(),
-      items: [...items],
-      subtotal, tax, shipping, total, ship,
-      status: 'Processing',
-    })
-    localStorage.setItem('shopfin_orders', JSON.stringify(orders))
-    clearCart()
-    navigate(`/order-confirmation/${orderId}`)
-  }
-
-  const stripeOptions = clientSecret
-    ? { clientSecret, appearance: { theme: 'stripe' } }
-    : null
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h1 className="text-2xl font-bold mb-6">Checkout</h1>
 
-      {/* Step indicators */}
-      <div className="flex items-center mb-8">
-        {STEPS.map((s, i) => (
-          <React.Fragment key={s}>
-            <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                i < step ? 'bg-green-500 text-white' : i === step ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-500'
-              }`}>
-                {i < step ? '✓' : i + 1}
-              </div>
-              <span className={`text-sm font-medium ${i === step ? 'text-brand-600' : 'text-gray-500'}`}>{s}</span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <div className={`flex-1 h-0.5 mx-3 ${i < step ? 'bg-green-400' : 'bg-gray-200'}`} />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
-          {/* Step 0: Shipping */}
-          {step === 0 && (
-            <div className="card p-6">
-              <h2 className="font-bold text-lg flex items-center gap-2 mb-5">
-                <Truck size={20} className="text-brand-500" /> Shipping Address
-              </h2>
-              <form onSubmit={handleShipNext} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FormField label="Full Name" id="fullName" required value={ship.fullName} onChange={(e) => setShip({...ship, fullName: e.target.value})} />
-                  <FormField label="Email" id="email" type="email" required value={ship.email} onChange={(e) => setShip({...ship, email: e.target.value})} />
-                </div>
-                <FormField label="Street Address" id="address" required placeholder="123 Main St" value={ship.address} onChange={(e) => setShip({...ship, address: e.target.value})} />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  <FormField label="City" id="city" required value={ship.city} onChange={(e) => setShip({...ship, city: e.target.value})} />
-                  <FormField label="State" id="state" required placeholder="CA" value={ship.state} onChange={(e) => setShip({...ship, state: e.target.value})} />
-                  <FormField label="ZIP" id="zip" required placeholder="94105" value={ship.zip} onChange={(e) => setShip({...ship, zip: e.target.value})} />
-                </div>
-                <button type="submit" disabled={loadingIntent} className="btn-primary w-full py-3 text-base">
-                  {loadingIntent ? 'Setting up payment…' : 'Continue to Payment →'}
-                </button>
-              </form>
-            </div>
-          )}
+          <div className="card p-6">
+            <h2 className="font-bold text-lg flex items-center gap-2 mb-5">
+              <Truck size={20} className="text-brand-500" /> Shipping & Contact
+            </h2>
 
-          {/* Step 1: Stripe Payment */}
-          {step === 1 && clientSecret && (
-            <div className="card p-6">
-              <h2 className="font-bold text-lg flex items-center gap-2 mb-1">
-                <Lock size={20} className="text-brand-500" /> Payment
-              </h2>
-              <p className="text-xs text-gray-500 flex items-center gap-1 mb-5">
-                <Lock size={12} /> Secured by Stripe — your card details are encrypted
-              </p>
-              <Elements stripe={stripePromise} options={stripeOptions}>
-                <StripePaymentForm
-                  clientSecret={clientSecret}
-                  onSuccess={handlePaymentSuccess}
-                  onBack={() => setStep(0)}
-                />
-              </Elements>
-              {/* Test card hint */}
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
-                <strong>Test mode:</strong> Use card <code className="bg-blue-100 px-1 rounded">4242 4242 4242 4242</code>, any future date, any CVC.
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3 mb-4">
+                {error}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Step 2: not used with Stripe (payment is step 1 final) */}
-          {step === 2 && (
-            <div className="card p-6 text-center py-12">
-              <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
-              <h2 className="text-xl font-bold">Payment Successful!</h2>
-            </div>
-          )}
+            <form onSubmit={handleCheckout} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Full Name" id="fullName" required value={ship.fullName} onChange={(e) => setShip({...ship, fullName: e.target.value})} />
+                <FormField label="Email" id="email" type="email" required value={ship.email} onChange={(e) => setShip({...ship, email: e.target.value})} />
+              </div>
+              <FormField label="Street Address" id="address" required placeholder="123 Main St" value={ship.address} onChange={(e) => setShip({...ship, address: e.target.value})} />
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <FormField label="City" id="city" required value={ship.city} onChange={(e) => setShip({...ship, city: e.target.value})} />
+                <FormField label="State" id="state" required placeholder="CA" value={ship.state} onChange={(e) => setShip({...ship, state: e.target.value})} />
+                <FormField label="ZIP" id="zip" required placeholder="94105" value={ship.zip} onChange={(e) => setShip({...ship, zip: e.target.value})} />
+              </div>
+
+              {/* Payment info notice */}
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3 mt-2">
+                <Lock size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-700">
+                  <p className="font-semibold">Secure payment via Stripe</p>
+                  <p className="text-xs mt-0.5">You'll be redirected to Stripe's secure payment page to complete your purchase.</p>
+                  <p className="text-xs mt-1 font-medium">Test card: <code className="bg-blue-100 px-1 rounded">4242 4242 4242 4242</code> · Any future date · Any CVC</p>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full py-3 text-base flex items-center justify-center gap-2 mt-2"
+              >
+                <CreditCard size={18} />
+                {loading ? 'Redirecting to payment…' : `Pay $${total.toFixed(2)} securely`}
+              </button>
+            </form>
+          </div>
         </div>
 
         {/* Order summary */}
